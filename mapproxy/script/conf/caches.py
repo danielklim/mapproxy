@@ -16,17 +16,18 @@
 
 from mapproxy.compat import iteritems
 
-def caches(cap, sources, srs_grids):
+def caches(cap, sources, srs_grids, _type='wms'):
+    suffix = '_{}'.format(_type)
     caches = {}
     for name, source in iteritems(sources):
-        conf = for_source(name, source, srs_grids)
+        conf = for_source(name, source, srs_grids, _type)
         if not conf:
             continue
-        caches[name[:-len('_wms')] + '_cache'] = conf
+        caches[name[:-len(suffix)] + '_cache'] = conf
 
     return caches
 
-def for_source(name, source, srs_grids):
+def for_source(name, source, srs_grids, _type='wms'):
     cache = {
         'sources': [name]
     }

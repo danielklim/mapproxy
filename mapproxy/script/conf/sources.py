@@ -18,11 +18,14 @@ from mapproxy.srs import SRS
 
 import logging
 
-def sources(cap):
+def sources(cap, _type='wms'):
     sources = {}
+    suffix = '_{}'.format(_type)
+    for_layer = for_layer_wms if _type == 'wms' else for_layer_wmts
+
     for layer in cap.layers_list():
         name, conf = for_layer(cap, layer)
-        sources[name+'_wms'] = conf
+        sources[name+suffix] = conf
 
     return sources
 
@@ -39,7 +42,7 @@ def check_srs(srs):
 
     return _checked_srs[srs]
 
-def for_layer(cap, layer):
+def for_layer_wms(cap, layer):
     source = {'type': 'wms'}
 
     req = {
@@ -83,4 +86,26 @@ def for_layer(cap, layer):
 
     return layer['name'], source
 
+def for_layer_wmts(cap, layer):
+    source = {'type': 'tile'}
 
+    if not layer['opaque']:
+        source['transparent'] = True
+
+    source['url'] = layer['url']['template']
+
+    source['supported_srs'] = []
+    for srs in layer['srs']:
+        if check_srs(srs):
+            source['supported_srs'].append(srs)
+    source['supported_srs'].sort()
+
+    if layer['bbox_srs']:
+        for k,v in layer['bbox_srs'].items():
+            # not sure how to deal with non wgs84 for now
+            if(k == 'WGS84'):
+                source['coverage'] = {
+                    'srs': 'EPSG:4326',
+                    'bbox': v['bbox'],
+                }
+    return layer['name'], source

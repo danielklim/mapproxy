@@ -37,7 +37,8 @@ from .utils import update_config, MapProxyYAMLDumper, download_capabilities
 
 from mapproxy.compat import iteritems
 from mapproxy.config.loader import load_configuration
-from mapproxy.util.ext.wmsparse import parse_capabilities
+from mapproxy.util.ext.wmsparse import parse_capabilities as parse_capabilities_wms
+from mapproxy.util.ext.wmtsparse import parse_capabilities as parse_capabilities_wmts
 
 def setup_logging(level=logging.INFO):
     mapproxy_log = logging.getLogger('mapproxy')
@@ -93,6 +94,7 @@ def config_command(args):
 
     parser.add_option('--force', default=False, action='store_true',
         help="overwrite existing files")
+    parser.add_option('--wmts', default=False, action='store_true', help="WMTS instead of WMS")
 
     options, args = parser.parse_args(args)
 
@@ -133,13 +135,27 @@ def config_command(args):
     else:
         cap_doc = open(cap_doc, 'rb').read()
 
-    try:
-        cap = parse_capabilities(BytesIO(cap_doc))
-    except (xml.etree.ElementTree.ParseError, ValueError) as ex:
-        print(ex, file=sys.stderr)
-        print(cap_doc[:1000] + ('...' if len(cap_doc) > 1000 else ''), file=sys.stderr)
-        return 3
+    if not options.wmts:
+        try:
+            cap = parse_capabilities_wms(BytesIO(cap_doc))
+            output_wms(cap, options, srs_grids)
+            return 0
+        except (xml.etree.ElementTree.ParseError, ValueError) as ex:
+            print(ex, file=sys.stderr)
+            print(cap_doc[:1000] + ('...' if len(cap_doc) > 1000 else ''), file=sys.stderr)
+            return 3
 
+    else:
+        try:
+            cap = parse_capabilities_wmts(BytesIO(cap_doc))
+            output_wmts(cap, options, srs_grids)
+            return 0
+        except (xml.etree.ElementTree.ParseError, ValueError) as ex:
+            print(ex, file=sys.stderr)
+            print(cap_doc[:1000] + ('...' if len(cap_doc) > 1000 else ''), file=sys.stderr)
+            return 3
+
+def output_wms(cap, options, srs_grids):
     overwrite = None
     if options.overwrite:
         with open(options.overwrite, 'rb') as f:
@@ -158,15 +174,15 @@ def config_command(args):
     if overwrite:
         conf['services'] = update_config(conf['services'], overwrite.pop('service', {}))
 
-    conf['sources'] = sources(cap)
+    conf['sources'] = sources(cap, _type='wms')
     if overwrite:
         conf['sources'] = update_config(conf['sources'], overwrite.pop('sources', {}))
 
-    conf['caches'] = caches(cap, conf['sources'], srs_grids=srs_grids)
+    conf['caches'] = caches(cap, conf['sources'], srs_grids=srs_grids, _type='wms')
     if overwrite:
         conf['caches'] = update_config(conf['caches'], overwrite.pop('caches', {}))
 
-    conf['layers'] = layers(cap, conf['caches'])
+    conf['layers'] = layers(cap, conf['caches'], _type='wms')
     if overwrite:
         conf['layers'] = update_config(conf['layers'], overwrite.pop('layers', {}))
 
@@ -178,6 +194,62 @@ def config_command(args):
     seed_conf['seeds'], seed_conf['cleanups'] = seeds(cap, conf['caches'])
     if overwrite_seed:
         seed_conf = update_config(seed_conf, overwrite_seed)
+
+    if options.output:
+        with file_or_stdout(options.output) as f:
+            write_header(f, options.capabilities)
+            yaml.dump(conf, f, default_flow_style=False, Dumper=MapProxyYAMLDumper)
+    if options.output_seed:
+        with file_or_stdout(options.output_seed) as f:
+            write_header(f, options.capabilities)
+            yaml.dump(seed_conf, f, default_flow_style=False, Dumper=MapProxyYAMLDumper)
+
+    return 0
+
+def output_wmts(cap, options, srs_grids):
+    overwrite = None
+    if options.overwrite:
+        with open(options.overwrite, 'rb') as f:
+            overwrite = yaml.load(f)
+
+    overwrite_seed = None
+    if options.overwrite_seed:
+        with open(options.overwrite_seed, 'rb') as f:
+            overwrite_seed = yaml.load(f)
+
+    conf = {}
+    if options.base:
+        conf['base'] = os.path.abspath(options.base)
+
+    conf['services'] = {'wms': {'md': {'title': cap.metadata()['title']}}}
+    if overwrite:
+        conf['services'] = update_config(conf['services'], overwrite.pop('service', {}))
+
+    conf['sources'] = sources(cap, _type='wmts')
+    if overwrite:
+        conf['sources'] = update_config(conf['sources'], overwrite.pop('sources', {}))
+
+    conf['caches'] = caches(cap, conf['sources'], srs_grids=srs_grids, _type='wmts')
+    if overwrite:
+        conf['caches'] = update_config(conf['caches'], overwrite.pop('caches', {}))
+
+    conf['layers'] = layers(cap, conf['caches'], _type='wmts')
+    if overwrite:
+        conf['layers'] = update_config(conf['layers'], overwrite.pop('layers', {}))
+
+    if overwrite:
+        conf = update_config(conf, overwrite)
+
+    seed_conf = {}
+    seed_conf['seeds'], seed_conf['cleanups'] = seeds(cap, conf['caches'])
+    if overwrite_seed:
+        seed_conf = update_config(seed_conf, overwrite_seed)
+
+    # unfuck layers because of weird tupling in `update_config`
+    tmp = []
+    for l in conf['layers']:
+        tmp.append(l[1])
+    conf['layers'] = tmp
 
 
     if options.output:
