@@ -39,6 +39,7 @@ from mapproxy.compat import iteritems
 from mapproxy.config.loader import load_configuration
 from mapproxy.util.ext.wmsparse import parse_capabilities as parse_capabilities_wms
 from mapproxy.util.ext.wmtsparse import parse_capabilities as parse_capabilities_wmts
+from mapproxy.client.http import open_url
 
 def setup_logging(level=logging.INFO):
     mapproxy_log = logging.getLogger('mapproxy')
@@ -131,7 +132,10 @@ def config_command(args):
 
     cap_doc = options.capabilities
     if cap_doc.startswith(('http://', 'https://')):
-        cap_doc = download_capabilities(options.capabilities).read()
+        if options.wmts:
+            cap_doc = open_url(options.capabilities).read()
+        else:
+            cap_doc = download_capabilities(options.capabilities).read()
     else:
         cap_doc = open(cap_doc, 'rb').read()
 

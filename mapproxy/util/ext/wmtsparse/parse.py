@@ -142,6 +142,7 @@ class WMTSCapabilities(object):
             '{TileMatrix}': '%(z)s',
             '{TileRow}': '%(y)s',
             '{TileCol}': '%(x)s',
+            '{Time}': '', # NASA Gibs: https://wiki.earthdata.nasa.gov/display/GIBS/GIBS+API+for+Developers
             # Other replacements go here
         }
 
